@@ -5,6 +5,7 @@ edition = "2021"
 description = "This is a tool to quickly run the Latex pipeline for a snippet in your clipboard and give you an image!"
 keywords = ["cli", "latex", "clipboard"]
 categories = ["command-line-utilities"]
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
