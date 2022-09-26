@@ -1,10 +1,8 @@
 use arboard::{Clipboard, ImageData};
 use clipboard_master::{CallbackResult, ClipboardHandler, Master};
 use image::io::Reader as ImageReader;
-use image::{DynamicImage, GenericImage, GrayImage, RgbImage};
+use latex::{Document, DocumentClass};
 use notify_rust::Notification;
-
-use latex::{Align, Document, DocumentClass, Element, PreambleElement, Section};
 use std::{
     borrow::Cow,
     env,
@@ -67,7 +65,7 @@ impl Handler {
             env::current_dir().expect("No working directory?").display()
         );
         let args: Vec<String> = env::args().collect();
-        let exit_status = Command::new("latexmk")
+        let _exit_status = Command::new("latexmk")
             .arg(file_path.to_str().unwrap())
             .arg("-quiet")
             .arg("-gg")
