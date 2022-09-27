@@ -1,145 +1,122 @@
 use arboard::{Clipboard, ImageData};
-use clipboard_master::{CallbackResult, ClipboardHandler, Master};
-use image::io::Reader as ImageReader;
-use latex::{Document, DocumentClass};
+use cairo::ImageSurface;
+use env_logger;
+use inputbot::{KeySequence, KeybdKey::*, MouseButton::*};
+use log::{debug, error, info, log_enabled, warn};
 use notify_rust::Notification;
-use std::{
-    borrow::Cow,
-    env,
-    fs::{create_dir_all, File},
-    io::{self, Write},
-    path::PathBuf,
-    process::Command,
-};
+use std::{borrow::Cow, fs::File};
+use std::{fs, process::Command};
+use tectonic;
 
-struct Handler {
-    clipboard: Clipboard,
+fn has_latex_macro(input: &str) -> bool {
+    input.starts_with("!tex ")
 }
 
-impl Handler {
-    fn new() -> Handler {
-        Handler {
-            clipboard: Clipboard::new().unwrap(),
-        }
-    }
-
-    fn validate_latex(input: String) -> Result<String, ()> {
-        if input.starts_with("!tex ") {
-            Ok(input.replace("!tex ", ""))
-        } else {
-            Err(())
-        }
-    }
-
-    fn string2latex(input: &str) -> String {
-        let mut doc = Document::new(DocumentClass::Other(String::from("standalone")));
-        doc.push(input);
-        let mut rendered =
-            latex::print(&doc).expect("Something went wrong while compiling Latex! Try again!");
-        rendered.insert_str(14, "[convert={density=300}, border=2mm]");
-        rendered
-    }
-
-    fn write_to_file_and_copy(self: &mut Self, input: String) {
-        /* Create a temporary file */
-        let filename = PathBuf::from("ClipTex.tex");
-        let foldername = PathBuf::from("clip_tex");
-
-        /* Create temp directory to work in */
-        let mut dir = env::temp_dir();
-        dir.push(foldername);
-        create_dir_all(&dir).expect("Creating directories failed miserably ... what a shame");
-        env::set_current_dir(&dir).expect("Stripping filename went wrong");
-        // println!("Tmp Dir: {}", dir.display());
-
-        /* Write Latex to the file */
-        let file_path = dir.join(&filename);
-        // println!("Trying to open: {}", file_path.display());
-        let mut tmp_file =
-            File::create(&file_path).expect("Something went wrong while openging the file");
-        write!(tmp_file, "{}", input).expect("Something went wrong while writing the file");
-
-        /* Compile Latex File */
-        println!(
-            "New Working Directory: {}",
-            env::current_dir().expect("No working directory?").display()
-        );
-        let args: Vec<String> = env::args().collect();
-        let _exit_status = Command::new("latexmk")
-            .arg(file_path.to_str().unwrap())
-            .arg("-quiet")
-            .arg("-gg")
-            .arg(&args.get(1).unwrap_or(&String::from("latex")))
-            // .arg("-dvi")
-            .arg("-shell-escape")
-            // .arg(format!("-output-directory={}", dir.to_str().unwrap()))
-            .output()
-            .expect("Command could not be ran :( poor latex");
-
-        /* Convert dvi to png */
-        // let file_path = dir.join(PathBuf::from("ClipTex.dvi"));
-        // let exit_status = Command::new("dvipng")
-        //     .arg(file_path.to_str().unwrap())
-        //     .arg("-D 300")
-        //     .arg("-oClipTex.png")
-        //     .status().expect("Converting to png seems rather difficult to me. Im sorry i failed you :/ - with love dvipng");
-
-        /* Copy to clipboard https://stackoverflow.com/questions/41034635/how-do-i-convert-between-string-str-vecu8-and-u8 */
-        let img = ImageReader::open("ClipTex.png")
-            .expect("Could not read image :( ")
-            .decode()
-            .expect("Decode Image failed");
-        // img.as_bytes()
-        let rgba8img = img.to_rgba8();
-        let bytes = rgba8img.as_raw().as_slice();
-        let test_image = ImageData {
-            width: img.width() as usize,
-            height: img.height() as usize,
-            bytes: Cow::from(bytes),
-        };
-
-        self.clipboard
-            .set_image(test_image)
-            .expect("Failed to push image in to clipboard");
-
-        Notification::new()
-            .summary("Clip Tex")
-            .body("Ready to Paste")
-            .image_path("ClipTex.png")
-            .show()
-            .expect("No ring ring, have you blocked me? :(");
-    }
-
-    fn handle_content(self: &mut Self, input: String) {
-        let result = Handler::validate_latex(input);
-        if result.is_ok() {
-            let latex_code = Handler::string2latex(&result.unwrap());
-            // println!("=====================\nCompiled Code\n{}", latex_code);
-            self.write_to_file_and_copy(latex_code)
-        } else {
-            // println!("This is not Latex!")
-        }
-    }
+fn snip_latex(input: &str) -> String {
+    input.replace("!tex ", "")
 }
 
-impl ClipboardHandler for Handler {
-    fn on_clipboard_change(&mut self) -> CallbackResult {
-        // println!("Clipboard change happened!");
+fn string_in_template(input: &str) -> String {
+    let doc = fs::read_to_string("templates/basic.tex").expect("Failed to read tex template");
+    let doc = doc.replace("%INSERT%", input);
+    debug!("{}", doc);
+    doc
+}
 
-        let result = self.clipboard.get_text();
-        match result {
-            Ok(content) => self.handle_content(content),
-            Err(_) => (), //println!("Whoops this was not Text it was an Image"),
-        };
-        CallbackResult::Next
+fn tectonic_rendering(latex_code: &str) -> (Vec<u8>, i32, i32) {
+    /* Render latex to PDF */
+    let scale = 5.0;
+    let mut pdf_vec = tectonic::latex_to_pdf(latex_code).expect("Couldn't compile Latex code");
+    let bytes = pdf_vec.as_mut_slice();
+
+    // let mut file = File::create("compare.pdf").expect("Couldn't create file");
+    // file.write_all(bytes).expect("Couldn't write to pdf file");
+
+    /* Parse PDF data with Poppler */
+    let document = poppler::PopplerDocument::new_from_data(bytes, "").expect("Poppler failed");
+    let page = document.get_page(0).expect("Getting page failed");
+    let (width, height) = page.get_size();
+    let width = (scale * width) as i32;
+    let height = (scale * height) as i32;
+    debug!("Width: {}, Height: {}", width, height);
+
+    /* Create Cairo Context for rendering and Render PDF */
+    let mut surface = ImageSurface::create(cairo::Format::ARgb32, width, height)
+        .expect("Couldn't create cairo surface");
+    let cr = cairo::Context::new(&surface).expect("Couldn't create cairo context");
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    cr.paint().expect("Failed to paint");
+    cr.scale(scale, scale);
+    page.render(&cr);
+
+    /* Write Surface to file */
+    let mut file = File::create("output.png").expect("Couldn't create file.");
+    surface
+        .write_to_png(&mut file)
+        .expect("Failed to write file");
+
+    debug!("Copying to clipboard");
+    surface.flush();
+    let data = surface.data().expect("failed to get data");
+    let byte_image = data.to_vec();
+    (byte_image, width, height)
+}
+
+fn on_clipboard_change(cb: &mut Clipboard) {
+    let text = cb.get_text();
+    if text.is_err() {
+        debug!("Something happened");
+        return;
     }
 
-    fn on_clipboard_error(&mut self, error: io::Error) -> CallbackResult {
-        eprintln!("Error: {}", error);
-        CallbackResult::Next
+    let text = text.unwrap();
+    debug!("Clipboard changed to: {}", text);
+    if !has_latex_macro(&text) {
+        return;
     }
+
+    let snippet = snip_latex(&text);
+    let latex_code = string_in_template(&snippet);
+    let (raw_bytes, width, height) = tectonic_rendering(&latex_code);
+
+    let test_image = ImageData {
+        width: width as usize,
+        height: height as usize,
+        bytes: Cow::from(raw_bytes),
+    };
+
+    cb.set_image(test_image)
+        .expect("Failed to push image in to clipboard");
+
+    Notification::new()
+        .summary("Clip Tex")
+        .body("Ready to Paste")
+        .image_path("ClipTex.png")
+        .show()
+        .expect("No ring ring, have you blocked me? :(");
 }
 
 fn main() {
-    let _ = Master::new(Handler::new()).run();
+    /* Init Logger */
+    env_logger::init();
+    println!("Started ClipTex");
+    CKey.bind(|| {
+        if LControlKey.is_pressed() {
+            let mut cb = Clipboard::new().expect("couldn't create clipboard");
+            on_clipboard_change(&mut cb);
+        }
+    });
+    let _result = Command::new("xhost")
+        .arg("si:localuser:root")
+        .status()
+        .expect("Failed to run xhost");
+    ctrlc::set_handler(move || {
+        let _result = Command::new("xhost")
+            .arg("-si:localuser:root")
+            .status()
+            .expect("Failed to run xhost");
+        std::process::exit(0);
+    })
+    .expect("Failed to set handler for ctrlc");
+    inputbot::handle_input_events();
 }
