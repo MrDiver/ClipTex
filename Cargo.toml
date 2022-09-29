@@ -6,6 +6,7 @@ description = "This is a tool to quickly run the Latex pipeline for a snippet in
 keywords = ["cli", "latex", "clipboard"]
 categories = ["command-line-utilities"]
 license = "MIT"
+repository = "https://github.com/MrDiver/ClipTex"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
