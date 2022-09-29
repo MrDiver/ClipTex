@@ -2,4 +2,8 @@
 
 Handy tool to convert a latex snippet in your clipboard to an image in your clipboard.
 
-You need a working latex distribution on your system!
+This tool uses [Tectonic](https://tectonic-typesetting.github.io/en-US/) for compilation of the latex code.
+
+### Platform Support
+- Linux
+- ~~Windows~~ (Help appreciated)
