@@ -1,5 +1,6 @@
 use arboard::{Clipboard, ImageData};
 use cairo::ImageSurface;
+use clipboard_master::{CallbackResult, ClipboardHandler};
 use env_logger;
 use inputbot::{KeySequence, KeybdKey::*, MouseButton::*};
 use log::{debug, error, info, log_enabled, warn};
@@ -43,22 +44,23 @@ fn tectonic_rendering(latex_code: &str) -> (Vec<u8>, i32, i32) {
     /* Create Cairo Context for rendering and Render PDF */
     let mut surface = ImageSurface::create(cairo::Format::ARgb32, width, height)
         .expect("Couldn't create cairo surface");
-    let cr = cairo::Context::new(&surface).expect("Couldn't create cairo context");
-    cr.set_source_rgb(1.0, 1.0, 1.0);
-    cr.paint().expect("Failed to paint");
-    cr.scale(scale, scale);
-    page.render(&cr);
-
+    /* Block needed to destroy context before collection data from surface */
+    {
+        let cr = cairo::Context::new(&surface).expect("Couldn't create cairo context");
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        cr.paint().expect("Failed to paint");
+        cr.scale(scale, scale);
+        page.render(&cr);
+    }
     /* Write Surface to file */
-    let mut file = File::create("output.png").expect("Couldn't create file.");
-    surface
-        .write_to_png(&mut file)
-        .expect("Failed to write file");
+    // let mut file = File::create("output.png").expect("Couldn't create file.");
+    // surface
+    //     .write_to_png(&mut file)
+    //     .expect("Failed to write file");
 
     debug!("Copying to clipboard");
-    surface.flush();
-    let data = surface.data().expect("failed to get data");
-    let byte_image = data.to_vec();
+
+    let byte_image = surface.data().expect("Failed to get surface data").to_vec();
     (byte_image, width, height)
 }
 
@@ -96,6 +98,7 @@ fn on_clipboard_change(cb: &mut Clipboard) {
         .expect("No ring ring, have you blocked me? :(");
 }
 
+#[cfg(target_os = "windows")]
 fn main() {
     /* Init Logger */
     env_logger::init();
@@ -106,17 +109,31 @@ fn main() {
             on_clipboard_change(&mut cb);
         }
     });
-    let _result = Command::new("xhost")
-        .arg("si:localuser:root")
-        .status()
-        .expect("Failed to run xhost");
-    ctrlc::set_handler(move || {
-        let _result = Command::new("xhost")
-            .arg("-si:localuser:root")
-            .status()
-            .expect("Failed to run xhost");
-        std::process::exit(0);
-    })
-    .expect("Failed to set handler for ctrlc");
     inputbot::handle_input_events();
+}
+
+struct LinuxHandler {
+    cb: Clipboard,
+}
+impl LinuxHandler {
+    fn new() -> LinuxHandler {
+        LinuxHandler {
+            cb: Clipboard::new().expect("Failed to create clipboard connection"),
+        }
+    }
+}
+
+impl ClipboardHandler for LinuxHandler {
+    fn on_clipboard_change(&mut self) -> clipboard_master::CallbackResult {
+        on_clipboard_change(&mut self.cb);
+        CallbackResult::Next
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn main() {
+    /* Init Logger */
+    env_logger::init();
+    let mut master = clipboard_master::Master::new(LinuxHandler::new());
+    master.run().expect("Clipboard Master failed you");
 }
