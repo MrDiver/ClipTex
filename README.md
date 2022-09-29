@@ -4,6 +4,15 @@ Handy tool to convert a latex snippet in your clipboard to an image in your clip
 
 This tool uses [Tectonic](https://tectonic-typesetting.github.io/en-US/) for compilation of the latex code.
 
+
+```
+!tex Your Latex Code Here $f(x)=x$
+```
+Produces this image after copying with clip_tex running in the background.
+
+<img alt="" width="400" src="https://user-images.githubusercontent.com/17803932/192912473-f1b2a353-dfcb-4530-ab75-b97878df7115.png" >
+
+
 ### Platform Support
 - Linux
 - ~~Windows~~ (Help appreciated)
