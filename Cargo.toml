@@ -1,6 +1,6 @@
 [package]
 name = "clip_tex"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "This is a tool to quickly run the Latex pipeline for a snippet in your clipboard and give you an image!"
 keywords = ["cli", "latex", "clipboard"]
